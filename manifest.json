@@ -1,0 +1,115 @@
+const CACHE_NAME = 'skt-takip-advanced-cache-v1'; // Cache adını güncelle
+const urlsToCache = [
+  '/',
+  'index.html',
+  'manifest.json',
+  'images/icon-72x72.png',
+  'images/icon-96x96.png',
+  'images/icon-128x128.png',
+  'images/icon-144x144.png',
+  'images/icon-152x152.png',
+  'images/icon-192x192.png',
+  'images/icon-384x384.png',
+  'images/icon-512x512.png'
+  // Dikkat: CDN'den çekilen ZXing kütüphanesini buraya eklemek genellikle önerilmez.
+  // Tarayıcının kendi CDN cache'ine güvenmek daha iyidir.
+];
+
+// Install Olayı (Cache oluştur ve dosyaları ekle)
+self.addEventListener('install', event => {
+  console.log('Service Worker: Installing...');
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(cache => {
+        console.log('Service Worker: Caching app shell');
+        // addAll başarısız olursa tüm install başarısız olur.
+        // İsteğe bağlı: Önemli olmayanları ayrı cache.add ile ekleyebilirsiniz.
+        return cache.addAll(urlsToCache);
+      })
+       .then(() => {
+         console.log('Service Worker: Skip waiting on install');
+         return self.skipWaiting(); // Yeni SW'yi hemen aktive et
+       })
+      .catch(error => {
+          console.error('Service Worker: Caching failed:', error);
+      })
+  );
+});
+
+// Activate Olayı (Eski cache'leri temizle)
+self.addEventListener('activate', event => {
+    console.log('Service Worker: Activating...');
+    event.waitUntil(
+        caches.keys().then(cacheNames => {
+            return Promise.all(
+                cacheNames.filter(cache => cache !== CACHE_NAME) // Mevcut cache dışındakileri sil
+                         .map(cache => {
+                             console.log('Service Worker: Clearing old cache:', cache);
+                             return caches.delete(cache);
+                         })
+            );
+        }).then(() => {
+            console.log('Service Worker: Claiming clients.');
+            return self.clients.claim(); // Kontrolü hemen ele al
+        })
+    );
+});
+
+// Fetch Olayı (Cache-First Stratejisi)
+self.addEventListener('fetch', event => {
+    if (event.request.method !== 'GET' ||
+        event.request.url.startsWith('chrome-extension://')) {
+      return; // Sadece GET istekleri ve tarayıcı eklentileri dışındakiler
+    }
+
+    // Cache-First stratejisi: Önce cache'e bak, yoksa network'e git.
+    event.respondWith(
+        caches.match(event.request)
+            .then(cachedResponse => {
+                if (cachedResponse) {
+                    // console.log('SW: Serving from cache:', event.request.url);
+                    return cachedResponse;
+                }
+
+                // console.log('SW: Fetching from network:', event.request.url);
+                return fetch(event.request).then(networkResponse => {
+                     // İsteğe bağlı: Ağdan gelen yanıtı dinamik olarak cache'lemek isterseniz
+                     // burada caches.open(CACHE_NAME).then(cache => cache.put(...)) yapabilirsiniz.
+                     // Ancak temel uygulama kabuğu için bu genellikle gereksizdir.
+                     return networkResponse;
+                 }).catch(error => {
+                     console.warn('SW: Network request failed, serving offline fallback or error', error);
+                     // Çevrimdışı olduğunda özel bir sayfa göstermek isterseniz:
+                     // return caches.match('/offline.html'); // offline.html'i cache'lemiş olmanız gerekir.
+                     // Şimdilik tarayıcının varsayılan hatasını gösterelim.
+                 });
+            })
+    );
+});
+
+// Bildirim Tıklama Olayı (İsteğe bağlı - Daha Gelişmiş)
+self.addEventListener('notificationclick', event => {
+  console.log('SW: Notification clicked:', event.notification);
+  event.notification.close(); // Bildirimi kapat
+
+  // Örnek: Uygulama sekmesini aç/odakla
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+      // Zaten açık bir sekme var mı kontrol et
+      for (let i = 0; i < windowClients.length; i++) {
+        const client = windowClients[i];
+        // URL'nin eşleştiğini kontrol et (daha spesifik olabilir)
+        if (client.url && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Açık sekme yoksa, yeni bir tane aç
+      if (clients.openWindow) {
+        // Veri varsa (örn: item ID), ilgili sayfayı aç
+        // const itemId = event.notification.data?.itemId;
+        // const urlToOpen = itemId ? `/#item-${itemId}` : '/';
+        return clients.openWindow('/');
+      }
+    })
+  );
+});

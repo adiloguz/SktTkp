@@ -1,0 +1,1220 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0277bd"/> <!-- Mavi tema rengi -->
+    <title>Gelişmiş SKT Takip PWA</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="images/icon-192x192.png">
+
+    <!-- ZXing Kütüphanesi (Barkod Okuyucu) CDN -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@zxing/library@latest/umd/index.min.js"></script>
+
+    <style>
+        /* Genel Stil ve Sıfırlama */
+        :root {
+            --primary-color: #0277bd; /* Koyu Mavi */
+            --secondary-color: #ffab00; /* Canlı Turuncu (Yaklaşan) */
+            --danger-color: #d32f2f; /* Koyu Kırmızı (Geçmiş) */
+            --success-color: #388e3c; /* Yeşil (Güvenli) */
+            --light-gray: #f5f5f5;
+            --medium-gray: #e0e0e0;
+            --dark-gray: #424242;
+            --text-color: #212121;
+            --white: #fff;
+            --shadow: 0 3px 6px rgba(0,0,0,0.16);
+            --shadow-heavy: 0 6px 12px rgba(0,0,0,0.2);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--light-gray);
+            color: var(--text-color);
+            line-height: 1.6;
+            overscroll-behavior-y: contain;
+        }
+
+        .container {
+            max-width: 850px;
+            margin: 0 auto;
+            padding: 15px;
+        }
+
+        /* Header */
+        header {
+            background: linear-gradient(135deg, var(--primary-color), #03a9f4); /* Gradient */
+            color: var(--white);
+            padding: 1.2rem 0;
+            text-align: center;
+            margin-bottom: 1.5rem;
+            box-shadow: var(--shadow-heavy);
+            border-bottom-left-radius: 10px;
+            border-bottom-right-radius: 10px;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 2rem;
+            font-weight: 500;
+        }
+
+        /* Kontrol Alanı */
+        .controls {
+            background-color: var(--white);
+            padding: 1rem 1.2rem;
+            margin-bottom: 1.5rem;
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .controls input[type="search"],
+        .controls select {
+            padding: 0.7rem;
+            border: 1px solid var(--medium-gray);
+            border-radius: 5px;
+            flex-grow: 1;
+            font-size: 0.95rem;
+        }
+         .controls input[type="search"]:focus,
+         .controls select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(2, 119, 189, 0.2);
+         }
+
+
+        .controls select {
+            min-width: 160px;
+            flex-grow: 0;
+            cursor: pointer;
+        }
+
+        /* Barkod Butonu */
+        .barcode-scan-btn {
+            background-color: var(--primary-color);
+            color: var(--white);
+            border: none;
+            padding: 0.7rem 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: background-color 0.3s ease;
+            flex-shrink: 0; /* Küçülmesin */
+        }
+        .barcode-scan-btn:hover {
+            background-color: #01579b; /* Koyu Mavi Hover */
+        }
+        .barcode-scan-btn svg { /* SVG İkon */
+            width: 18px;
+            height: 18px;
+            fill: currentColor;
+        }
+
+
+        /* Ürün Listesi */
+        #itemList {
+            list-style: none;
+            padding: 0;
+        }
+
+        #itemList li {
+            background-color: var(--white);
+            margin-bottom: 12px;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 6px solid var(--success-color); /* Varsayılan: Güvenli */
+            opacity: 0;
+            transform: scale(0.95);
+            animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+            position: relative; /* Notlar için */
+             overflow: hidden; /* Animasyon taşmasını engelle */
+        }
+
+        @keyframes popIn {
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+
+        #itemList li.status-safe { border-left-color: var(--success-color); }
+        #itemList li.status-near { border-left-color: var(--secondary-color); }
+        #itemList li.status-expired { border-left-color: var(--danger-color); }
+
+        #itemList .item-info {
+            flex-grow: 1;
+            margin-right: 15px;
+            min-width: 0; /* Flexbox taşma sorununu engelle */
+        }
+
+        #itemList .item-header {
+             display: flex;
+             align-items: baseline;
+             gap: 8px;
+             margin-bottom: 5px;
+        }
+
+        #itemList .item-name {
+            font-weight: 600;
+            font-size: 1.15rem;
+            color: var(--dark-gray);
+             white-space: nowrap;
+             overflow: hidden;
+             text-overflow: ellipsis; /* Uzun isimleri kısalt */
+        }
+
+        #itemList .item-quantity {
+             font-size: 0.9rem;
+             color: var(--text-color);
+             background-color: var(--light-gray);
+             padding: 2px 6px;
+             border-radius: 4px;
+             white-space: nowrap;
+        }
+
+
+        #itemList .item-skt {
+            font-size: 0.9rem;
+            color: #555;
+            margin-bottom: 5px;
+        }
+        #itemList .item-skt strong {
+            color: var(--text-color);
+            font-weight: 600;
+        }
+        #itemList .item-skt .days-left {
+            font-weight: 500;
+        }
+        #itemList li.status-near .days-left { color: var(--secondary-color); }
+        #itemList li.status-expired .days-left { color: var(--danger-color); font-weight: bold;}
+
+
+         #itemList .item-details {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 8px;
+             display: flex;
+             flex-direction: column;
+             gap: 4px;
+         }
+         #itemList .item-notes,
+         #itemList .item-barcode {
+             white-space: nowrap;
+             overflow: hidden;
+             text-overflow: ellipsis;
+             max-width: 90%; /* Taşmayı engelle */
+         }
+          #itemList .item-notes strong,
+          #itemList .item-barcode strong {
+            color: var(--dark-gray);
+          }
+
+        #itemList .item-actions {
+            display: flex;
+            flex-direction: column; /* Butonları alt alta */
+            align-items: center;
+             gap: 8px; /* Buton arası boşluk */
+        }
+
+        #itemList .item-actions button {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 6px;
+            font-size: 1.3rem;
+            line-height: 1; /* Hizalama */
+             border-radius: 50%;
+             width: 36px;
+             height: 36px;
+             display: flex;
+             justify-content: center;
+             align-items: center;
+             transition: background-color 0.2s ease;
+        }
+         #itemList .item-actions button:hover {
+            background-color: var(--light-gray);
+         }
+
+        #itemList .edit-btn { color: #1976d2; } /* Biraz daha koyu mavi */
+        #itemList .delete-btn { color: var(--danger-color); }
+
+        /* Ekle Butonu (FAB) */
+        .fab {
+            position: fixed;
+            bottom: 25px;
+            right: 25px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            font-size: 28px;
+            line-height: 60px;
+            text-align: center;
+            box-shadow: var(--shadow-heavy);
+            cursor: pointer;
+            z-index: 1000;
+            transition: transform 0.3s ease, background-color 0.3s ease;
+        }
+        .fab:hover {
+            background-color: #01579b;
+            transform: scale(1.1);
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1010; /* FAB'ın üzerinde */
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6);
+            animation: fadeInModal 0.3s ease-out;
+        }
+
+        @keyframes fadeInModal { from { opacity: 0; } to { opacity: 1; } }
+
+        .modal-content {
+            background-color: var(--white);
+            margin: 10% auto; /* Daha yukarıda */
+            padding: 25px 30px;
+            border-radius: 10px;
+            max-width: 550px;
+            width: 90%;
+            position: relative;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            animation: slideInModal 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+
+        @keyframes slideInModal {
+             from { transform: translateY(-50px); opacity: 0; }
+             to { transform: translateY(0); opacity: 1; }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--medium-gray);
+            padding-bottom: 15px;
+            margin-bottom: 25px;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.6rem;
+            font-weight: 500;
+            color: var(--primary-color);
+        }
+
+        .close-btn {
+            color: #9e9e9e;
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            background: none;
+            border: none;
+            line-height: 1;
+             transition: color 0.2s ease;
+        }
+        .close-btn:hover, .close-btn:focus { color: var(--dark-gray); }
+
+        .form-group { margin-bottom: 20px; }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #616161; /* Biraz daha açık gri */
+            font-size: 0.9rem;
+        }
+
+        .form-group input[type="text"],
+        .form-group input[type="date"],
+        .form-group input[type="number"],
+        .form-group textarea,
+        .form-group input[readonly] { /* Readonly barcode input */
+            width: 100%;
+            padding: 12px;
+            border: 1px solid var(--medium-gray);
+            border-radius: 5px;
+            font-size: 1rem;
+             transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        .form-group input[readonly] {
+            background-color: var(--light-gray);
+            cursor: not-allowed;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus {
+             outline: none;
+             border-color: var(--primary-color);
+             box-shadow: 0 0 0 3px rgba(2, 119, 189, 0.25);
+        }
+
+
+        .form-group textarea {
+            resize: vertical; /* Sadece dikeyde boyutlandırma */
+            min-height: 80px;
+        }
+
+        input[type="date"]:required:invalid::-webkit-datetime-edit { color: transparent; }
+        input[type="date"]:focus::-webkit-datetime-edit { color: black !important; }
+
+        .modal-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin-top: 30px;
+        }
+
+        .modal-buttons button {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: background-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .save-btn {
+            background-color: var(--primary-color);
+            color: white;
+             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .cancel-btn {
+            background-color: var(--medium-gray);
+            color: var(--dark-gray);
+        }
+        .save-btn:hover { background-color: #01579b; box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+        .cancel-btn:hover { background-color: #bdbdbd; }
+
+        /* Barkod Okuyucu Modal */
+        #barcodeScannerModal {
+             display: none;
+             /* Diğer modal stilleriyle aynı */
+             z-index: 1020; /* Diğer modalın üzerinde */
+             background-color: rgba(0,0,0,0.8); /* Daha koyu */
+        }
+        .barcode-scanner-content {
+             background-color: var(--dark-gray);
+             margin: 5% auto;
+             padding: 20px;
+             border-radius: 10px;
+             max-width: 600px;
+             width: 95%;
+             position: relative;
+             text-align: center;
+             color: var(--white);
+        }
+         .barcode-scanner-content h2 {
+            margin-bottom: 15px;
+            color: var(--primary-color);
+         }
+        #videoPreviewContainer {
+            position: relative;
+            width: 100%;
+            max-width: 500px; /* Maksimum genişlik */
+            margin: 0 auto 15px auto;
+             background-color: #000;
+             border-radius: 8px;
+             overflow: hidden; /* Köşeleri yuvarlatmak için */
+        }
+        #videoPreview {
+            width: 100%;
+            height: auto;
+            display: block; /* Alt boşluğu kaldır */
+        }
+         #scanRegion { /* Ortadaki tarama çizgisi (opsiyonel) */
+            position: absolute;
+            top: 50%;
+            left: 5%;
+            right: 5%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--danger-color), transparent);
+            box-shadow: 0 0 5px var(--danger-color);
+            transform: translateY(-50%);
+            animation: scanLine 2s infinite linear;
+            opacity: 0.7;
+         }
+         @keyframes scanLine {
+            0%, 100% { transform: translateY(-50%) scaleX(1); }
+            50% { transform: translateY(-50%) scaleX(1.05); }
+         }
+
+        #stopScanBtn {
+             background-color: var(--danger-color);
+             color: white;
+             padding: 10px 20px;
+             border: none;
+             border-radius: 5px;
+             cursor: pointer;
+             font-size: 1rem;
+             margin-top: 10px;
+        }
+        #stopScanBtn:hover {
+             background-color: #b71c1c;
+        }
+
+        /* No Items Message */
+         #noItemsMessage {
+            text-align: center;
+            color: #757575; /* Medium gray */
+            margin-top: 30px;
+            font-size: 1.1rem;
+            display: none; /* Başlangıçta gizli */
+         }
+
+         /* Bildirim İzin Butonu */
+         #notificationControls {
+             background-color: var(--white);
+             padding: 1rem;
+             margin-bottom: 1rem;
+             border-radius: 8px;
+             box-shadow: var(--shadow);
+             text-align: center;
+             display: none; /* Başlangıçta gizli, JS ile gösterilecek */
+         }
+         #notificationControls p { margin-bottom: 10px; color: #666; }
+         #enableNotificationsBtn {
+             background-color: var(--success-color);
+             color: var(--white);
+             border: none;
+             padding: 0.7rem 1.5rem;
+             border-radius: 5px;
+             cursor: pointer;
+             font-size: 0.95rem;
+             transition: background-color 0.3s ease;
+         }
+          #enableNotificationsBtn:hover {
+             background-color: #2e7d32;
+          }
+
+        /* Çevrimdışı Göstergesi */
+        .offline-indicator {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: var(--secondary-color);
+            color: var(--dark-gray);
+            text-align: center;
+            padding: 10px;
+            font-size: 0.95rem;
+            z-index: 1002;
+            font-weight: 500;
+            box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
+        }
+        body.offline .offline-indicator { display: block; }
+
+
+        /* Responsive Ayarlamalar */
+        @media (max-width: 768px) {
+             .controls {
+                 flex-direction: column;
+                 align-items: stretch;
+             }
+             .barcode-scan-btn {
+                 width: 100%;
+                 justify-content: center; /* Ortala */
+             }
+        }
+
+        @media (max-width: 600px) {
+            .container { padding: 10px; }
+            header h1 { font-size: 1.6rem; }
+            .controls { padding: 0.8rem; }
+
+            #itemList li {
+                padding: 12px 15px;
+                flex-direction: column;
+                align-items: stretch; /* Tam genişlik */
+            }
+            #itemList .item-info { margin-right: 0; margin-bottom: 10px; }
+            #itemList .item-header { flex-wrap: wrap;} /* Başlık sarabilir */
+            #itemList .item-name { font-size: 1.1rem; }
+             #itemList .item-details { font-size: 0.8rem; }
+
+            #itemList .item-actions {
+                flex-direction: row; /* Butonları yan yana */
+                justify-content: flex-end; /* Sağa yasla */
+                margin-top: 5px;
+                 gap: 12px;
+            }
+             #itemList .item-actions button { width: 40px; height: 40px; font-size: 1.4rem;}
+
+
+            .fab { width: 56px; height: 56px; font-size: 24px; line-height: 56px; bottom: 20px; right: 20px;}
+
+            .modal-content {
+                margin: 5% auto;
+                width: 95%;
+                padding: 20px 25px;
+            }
+             .modal-header h2 { font-size: 1.4rem; }
+             .modal-buttons button { padding: 10px 20px; font-size: 0.95rem; }
+
+             .barcode-scanner-content { width: 98%; margin: 2% auto; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Gelişmiş SKT Takip</h1>
+    </header>
+
+    <div class="container">
+        <div class="controls">
+            <input type="search" id="searchInput" placeholder="Ürün adı, not veya barkod ara...">
+            <select id="sortOrder">
+                <option value="sktAsc">SKT Yaklaşan Önce</option>
+                <option value="sktDesc">SKT Uzaklaşan Önce</option>
+                <option value="nameAsc">İsim (A-Z)</option>
+                <option value="nameDesc">İsim (Z-A)</option>
+                <option value="addedDesc">Eklenme (Yeni)</option>
+                <option value="addedAsc">Eklenme (Eski)</option>
+                 <option value="quantityAsc">Miktar (Azdan Çoğa)</option>
+                 <option value="quantityDesc">Miktar (Çoktan Aza)</option>
+            </select>
+            <button class="barcode-scan-btn" id="scanBarcodeBtn" title="Barkod Tara ve Ekle">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 5v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2zm4 0h2v14H7zm3 0h2v14h-2zm3 0h2v14h-2zm3 0h1v14h-1z"/></svg>
+                <span>Barkod Tara</span>
+            </button>
+        </div>
+
+        <!-- Bildirim İzin Kontrolü -->
+        <div id="notificationControls">
+            <p>SKT'si yaklaşan ürünler için bildirim almak ister misiniz?</p>
+            <button id="enableNotificationsBtn">Bildirimlere İzin Ver</button>
+        </div>
+
+        <ul id="itemList">
+            <!-- Ürünler buraya JavaScript ile eklenecek -->
+        </ul>
+        <p id="noItemsMessage">Henüz hiç ürün eklenmemiş. '+' butonuyla veya barkod tarayarak ekleyebilirsiniz.</p>
+    </div>
+
+    <!-- Ekle Butonu (FAB) -->
+    <button class="fab" id="addItemBtn" title="Yeni Ürün Ekle">+</button>
+
+    <!-- Ekle/Düzenle Modal -->
+    <div id="itemModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Yeni Ürün Ekle</h2>
+                <button class="close-btn" id="closeModalBtn">×</button>
+            </div>
+            <form id="itemForm">
+                <input type="hidden" id="itemId">
+                <div class="form-group">
+                    <label for="itemName">Ürün Adı:</label>
+                    <input type="text" id="itemName" required>
+                </div>
+                <div class="form-group">
+                    <label for="itemSkt">Son Kullanma Tarihi (SKT):</label>
+                    <input type="date" id="itemSkt" required>
+                </div>
+                 <div class="form-group">
+                    <label for="itemQuantity">Miktar:</label>
+                    <input type="number" id="itemQuantity" min="1" value="1">
+                </div>
+                 <div class="form-group">
+                    <label for="itemNotes">Notlar:</label>
+                    <textarea id="itemNotes" rows="3"></textarea>
+                </div>
+                 <div class="form-group">
+                    <label for="itemBarcode">Barkod:</label>
+                    <input type="text" id="itemBarcode" readonly placeholder="Barkod tarama ile eklenecek...">
+                </div>
+                <div class="modal-buttons">
+                    <button type="button" class="cancel-btn" id="cancelModalBtn">İptal</button>
+                    <button type="submit" class="save-btn">Kaydet</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Barkod Okuyucu Modal -->
+    <div id="barcodeScannerModal" class="modal">
+        <div class="barcode-scanner-content">
+             <h2>Barkodu Kameraya Gösterin</h2>
+             <div id="videoPreviewContainer">
+                <video id="videoPreview" playsinline></video> <!-- playsinline iOS için önemli -->
+                <div id="scanRegion"></div> <!-- Opsiyonel Tarama Çizgisi -->
+            </div>
+            <p id="scanResultMessage"></p>
+            <button id="stopScanBtn">Taramayı Durdur</button>
+        </div>
+    </div>
+
+     <!-- Çevrimdışı Göstergesi -->
+    <div class="offline-indicator">Çevrimdışı moddasınız. Veriler yerel olarak saklanıyor.</div>
+
+    <script>
+        // --- Barkod Okuyucu Kütüphanesi ---
+        // CDN'den yüklendiği için global alanda `ZXingBrowser` olarak erişilebilir olmalı
+        const { BrowserMultiFormatReader, NotFoundException } = window.ZXingBrowser;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DOM Elementleri ---
+            const itemList = document.getElementById('itemList');
+            const addItemBtn = document.getElementById('addItemBtn');
+            const itemModal = document.getElementById('itemModal');
+            const closeModalBtn = document.getElementById('closeModalBtn');
+            const cancelModalBtn = document.getElementById('cancelModalBtn');
+            const itemForm = document.getElementById('itemForm');
+            const modalTitle = document.getElementById('modalTitle');
+            const itemIdInput = document.getElementById('itemId');
+            const itemNameInput = document.getElementById('itemName');
+            const itemSktInput = document.getElementById('itemSkt');
+            const itemQuantityInput = document.getElementById('itemQuantity');
+            const itemNotesInput = document.getElementById('itemNotes');
+            const itemBarcodeInput = document.getElementById('itemBarcode');
+            const searchInput = document.getElementById('searchInput');
+            const sortOrderSelect = document.getElementById('sortOrder');
+            const noItemsMessage = document.getElementById('noItemsMessage');
+            const offlineIndicator = document.querySelector('.offline-indicator');
+            const scanBarcodeBtn = document.getElementById('scanBarcodeBtn');
+            const barcodeScannerModal = document.getElementById('barcodeScannerModal');
+            const videoPreview = document.getElementById('videoPreview');
+            const stopScanBtn = document.getElementById('stopScanBtn');
+            const scanResultMessage = document.getElementById('scanResultMessage');
+            const notificationControls = document.getElementById('notificationControls');
+            const enableNotificationsBtn = document.getElementById('enableNotificationsBtn');
+
+            // --- Barkod Okuyucu Ayarları ---
+            const codeReader = new BrowserMultiFormatReader();
+            let selectedDeviceId; // Seçili kamera ID'si
+            let isScanning = false;
+
+            // --- Veri Yönetimi ---
+            let items = JSON.parse(localStorage.getItem('sktItemsAdvanced')) || [];
+            let currentEditId = null;
+
+            const saveItems = () => {
+                localStorage.setItem('sktItemsAdvanced', JSON.stringify(items));
+            };
+
+            // --- Tarih ve Durum Hesaplama ---
+            const getStatus = (sktDate) => {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const expiryDate = new Date(sktDate);
+                expiryDate.setHours(0, 0, 0, 0);
+
+                const diffTime = expiryDate - today;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                if (diffDays < 0) {
+                    return { class: 'status-expired', text: `SKT ${Math.abs(diffDays)} gün geçti`, days: diffDays };
+                } else if (diffDays === 0) {
+                    return { class: 'status-expired', text: `SKT Bugün!`, days: diffDays };
+                } else if (diffDays <= 7) { // 7 gün kala uyar
+                    return { class: 'status-near', text: `${diffDays} gün kaldı`, days: diffDays };
+                } else {
+                    return { class: 'status-safe', text: `${diffDays} gün kaldı`, days: diffDays };
+                }
+            };
+
+            const formatDate = (dateString) => {
+                if (!dateString) return '';
+                const date = new Date(dateString);
+                const offset = date.getTimezoneOffset();
+                const adjustedDate = new Date(date.getTime() - (offset*60*1000));
+                return adjustedDate.toISOString().split('T')[0];
+            };
+
+            const displayDate = (dateString) => {
+                if (!dateString) return '';
+                const [year, month, day] = dateString.split('-');
+                return `${day}.${month}.${year}`;
+            };
+
+             // --- Arayüz Güncelleme (`renderItems`) ---
+            const renderItems = (filteredItems = items) => {
+                itemList.innerHTML = '';
+
+                const showNoItems = filteredItems.length === 0;
+                noItemsMessage.style.display = showNoItems ? 'block' : 'none';
+
+                if (showNoItems && items.length > 0 && searchInput.value) {
+                    noItemsMessage.textContent = `"${searchInput.value}" ile eşleşen ürün bulunamadı.`;
+                } else if (showNoItems && items.length === 0) {
+                    noItemsMessage.textContent = 'Henüz hiç ürün eklenmemiş. \'+\' butonuyla veya barkod tarayarak ekleyebilirsiniz.';
+                }
+
+
+                const sortedItems = sortItems(filteredItems, sortOrderSelect.value);
+
+                sortedItems.forEach(item => {
+                    const li = document.createElement('li');
+                    const status = getStatus(item.skt);
+                    li.classList.add(status.class);
+                    li.dataset.id = item.id;
+
+                    // Notları ve barkodu kısaltılmış göster (varsa)
+                    const displayNotes = item.notes ? `<strong>Not:</strong> ${item.notes.substring(0, 50)}${item.notes.length > 50 ? '...' : ''}` : '';
+                    const displayBarcode = item.barcode ? `<strong>Barkod:</strong> ${item.barcode}` : '';
+
+                    li.innerHTML = `
+                        <div class="item-info">
+                             <div class="item-header">
+                                <div class="item-name">${item.name}</div>
+                                ${item.quantity > 1 ? `<span class="item-quantity">${item.quantity} adet</span>` : ''}
+                             </div>
+                            <div class="item-skt">
+                                SKT: <strong>${displayDate(item.skt)}</strong>
+                                <span class="days-left">(${status.text})</span>
+                            </div>
+                             <div class="item-details">
+                                ${displayNotes ? `<div class="item-notes">${displayNotes}</div>` : ''}
+                                ${displayBarcode ? `<div class="item-barcode">${displayBarcode}</div>` : ''}
+                             </div>
+                        </div>
+                        <div class="item-actions">
+                            <button class="edit-btn" title="Düzenle">✎</button> <!-- Edit Icon -->
+                            <button class="delete-btn" title="Sil"></button> <!-- Trash Icon -->
+                        </div>
+                    `;
+
+                    li.querySelector('.edit-btn').addEventListener('click', () => openModal(item.id));
+                    li.querySelector('.delete-btn').addEventListener('click', () => {
+                        if (confirm(`"${item.name}" ürününü silmek istediğinizden emin misiniz?`)) {
+                            deleteItem(item.id);
+                        }
+                    });
+
+                    itemList.appendChild(li);
+                });
+                 // Görüntülenen öğelerden sonra bildirimleri kontrol et
+                 checkAndRequestNotifications();
+            };
+
+
+             // --- Sıralama Fonksiyonu ---
+             const sortItems = (itemsToSort, sortValue) => {
+                const sorted = [...itemsToSort];
+                switch (sortValue) {
+                    case 'sktAsc': sorted.sort((a, b) => new Date(a.skt) - new Date(b.skt)); break;
+                    case 'sktDesc': sorted.sort((a, b) => new Date(b.skt) - new Date(a.skt)); break;
+                    case 'nameAsc': sorted.sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' })); break;
+                    case 'nameDesc': sorted.sort((a, b) => b.name.localeCompare(a.name, 'tr', { sensitivity: 'base' })); break;
+                    case 'addedDesc': sorted.sort((a, b) => b.id - a.id); break;
+                    case 'addedAsc': sorted.sort((a, b) => a.id - b.id); break;
+                    case 'quantityAsc': sorted.sort((a, b) => (a.quantity || 1) - (b.quantity || 1)); break;
+                    case 'quantityDesc': sorted.sort((a, b) => (b.quantity || 1) - (a.quantity || 1)); break;
+                }
+                return sorted;
+            };
+
+             // --- Arama/Filtreleme ---
+            const filterItems = () => {
+                const searchTerm = searchInput.value.toLowerCase().trim();
+                if (!searchTerm) {
+                    renderItems(items); // Arama boşsa tümünü göster
+                    return;
+                }
+                const filtered = items.filter(item =>
+                    item.name.toLowerCase().includes(searchTerm) ||
+                    (item.notes && item.notes.toLowerCase().includes(searchTerm)) ||
+                    (item.barcode && item.barcode.toLowerCase().includes(searchTerm))
+                );
+                renderItems(filtered);
+            };
+
+             // --- CRUD İşlemleri ---
+            const addItem = (data) => {
+                const newItem = {
+                    id: Date.now(),
+                    name: data.name.trim(),
+                    skt: data.skt,
+                    quantity: parseInt(data.quantity, 10) || 1,
+                    notes: data.notes.trim(),
+                    barcode: data.barcode || null, // Barkod yoksa null
+                    addedDate: new Date().toISOString()
+                };
+                items.push(newItem);
+                saveItems();
+                filterItems();
+                closeModal();
+                 checkAndNotifyExpiringItems(); // Yeni eklenenler için bildirim kontrolü
+            };
+
+            const updateItem = (id, data) => {
+                const itemIndex = items.findIndex(item => item.id === id);
+                if (itemIndex > -1) {
+                    items[itemIndex] = {
+                        ...items[itemIndex], // Eski verileri koru (id, addedDate)
+                        name: data.name.trim(),
+                        skt: data.skt,
+                        quantity: parseInt(data.quantity, 10) || 1,
+                        notes: data.notes.trim(),
+                        barcode: data.barcode || items[itemIndex].barcode // Düzenlemede barkod boş gelirse eskisini koru
+                    };
+                    saveItems();
+                    filterItems();
+                    closeModal();
+                     checkAndNotifyExpiringItems(); // Güncellenenler için bildirim kontrolü
+                }
+            };
+
+            const deleteItem = (id) => {
+                items = items.filter(item => item.id !== id);
+                saveItems();
+                filterItems();
+            };
+
+             // --- Modal Yönetimi ---
+            const openModal = (id = null, prefillData = {}) => {
+                itemForm.reset();
+                currentEditId = id;
+                 // Prefill datayı uygula (barkod taramadan gelebilir)
+                 itemNameInput.value = prefillData.name || '';
+                 itemSktInput.value = prefillData.skt || '';
+                 itemQuantityInput.value = prefillData.quantity || 1;
+                 itemNotesInput.value = prefillData.notes || '';
+                 itemBarcodeInput.value = prefillData.barcode || '';
+
+
+                if (id) { // Düzenleme modu
+                    const item = items.find(item => item.id === id);
+                    if (item) {
+                        modalTitle.textContent = 'Ürünü Düzenle';
+                        itemIdInput.value = item.id;
+                        itemNameInput.value = item.name;
+                        itemSktInput.value = formatDate(item.skt);
+                        itemQuantityInput.value = item.quantity || 1;
+                        itemNotesInput.value = item.notes || '';
+                        itemBarcodeInput.value = item.barcode || '';
+                    } else {
+                        console.error("Düzenlenecek öğe bulunamadı:", id);
+                        return;
+                    }
+                } else { // Yeni ekleme modu
+                    modalTitle.textContent = 'Yeni Ürün Ekle';
+                    itemIdInput.value = '';
+                     // Prefill barkod varsa onu koru, yoksa temizle
+                     itemBarcodeInput.value = prefillData.barcode || '';
+                }
+                itemModal.style.display = 'block';
+                itemNameInput.focus();
+            };
+
+            const closeModal = () => {
+                itemModal.style.display = 'none';
+                itemForm.reset();
+                currentEditId = null;
+            };
+
+            // --- Barkod Okuyucu Fonksiyonları ---
+            const startScan = async () => {
+                if (isScanning) return;
+
+                scanResultMessage.textContent = 'Kamera başlatılıyor...';
+                barcodeScannerModal.style.display = 'block';
+
+                try {
+                    // Kamera listesini al (ilk seferde izin isteyebilir)
+                    const videoInputDevices = await codeReader.listVideoInputDevices();
+                    if (videoInputDevices.length === 0) {
+                        scanResultMessage.textContent = 'Kamera bulunamadı.';
+                        stopScan(); // Modalı kapat vs.
+                        alert("Cihazınızda kamera bulunamadı veya erişim izni verilmedi.");
+                        return;
+                    }
+
+                    // Genellikle arka kamerayı tercih et, yoksa ilkini kullan
+                    selectedDeviceId = videoInputDevices.length > 1
+                        ? videoInputDevices.find(device => device.label.toLowerCase().includes('back'))?.deviceId || videoInputDevices[0].deviceId
+                        : videoInputDevices[0].deviceId;
+
+                    console.log(`Using video device: ${selectedDeviceId}`);
+                    scanResultMessage.textContent = 'Barkodu çerçeveye yerleştirin...';
+                    isScanning = true;
+
+                    // Taramayı başlat
+                    codeReader.decodeFromVideoDevice(selectedDeviceId, videoPreview, (result, err) => {
+                        if (result) {
+                            console.log('Barkod bulundu:', result);
+                            scanResultMessage.textContent = `Bulundu: ${result.getText()}`;
+                            handleBarcodeResult(result.getText());
+                            stopScan(); // Başarılı okumadan sonra durdur
+                        }
+                        if (err && !(err instanceof NotFoundException)) {
+                            // NotFoundException normal, diğer hataları logla
+                            console.error('Tarama hatası:', err);
+                            scanResultMessage.textContent = 'Tarama hatası oluştu.';
+                        }
+                         // Sürekli tarama için burası döngüde kalır
+                         // Eğer sadece ilk sonucu istiyorsanız, başarı durumunda stopScan çağrılır.
+                    });
+
+                } catch (error) {
+                    console.error('Kamera erişim hatası:', error);
+                    scanResultMessage.textContent = 'Kamera erişim hatası!';
+                    isScanning = false;
+                    alert(`Kamera erişiminde sorun oluştu: ${error.message}. Tarayıcı ayarlarından izin verdiğinizden emin olun.`);
+                    barcodeScannerModal.style.display = 'none'; // Hata durumunda modalı kapat
+                }
+            };
+
+            const stopScan = () => {
+                if (!isScanning) return;
+                console.log('Taramayı durduruyor...');
+                codeReader.reset(); // Kamerayı serbest bırak
+                videoPreview.srcObject = null; // Video akışını temizle
+                barcodeScannerModal.style.display = 'none';
+                scanResultMessage.textContent = '';
+                isScanning = false;
+            };
+
+            const handleBarcodeResult = (barcode) => {
+                console.log(`İşlenecek barkod: ${barcode}`);
+                // TODO: İsteğe bağlı: Mevcut ürünlerde bu barkod var mı kontrol et?
+                // const existingItem = items.find(item => item.barcode === barcode);
+                // if (existingItem) {
+                //     // Mevcut ürünü düzenleme modalını aç veya bilgi ver
+                //     alert(`Bu barkod (${barcode}) zaten "${existingItem.name}" ürününe ait.`);
+                //     openModal(existingItem.id);
+                // } else {
+                     // Yeni ürün ekleme modalını barkod bilgisiyle aç
+                     openModal(null, { barcode: barcode });
+                // }
+            };
+
+
+            // --- Bildirim Fonksiyonları ---
+            const checkNotificationPermission = () => {
+                if (!('Notification' in window)) {
+                    console.warn('Bu tarayıcı bildirimleri desteklemiyor.');
+                    return 'unsupported';
+                }
+                 // İzin durumu 'granted' (izin verildi), 'denied' (reddedildi), 'default' (sorulmadı) olabilir.
+                return Notification.permission;
+            };
+
+            const requestNotificationPermission = async () => {
+                 const permission = checkNotificationPermission();
+                 if (permission === 'granted' || permission === 'unsupported') {
+                     notificationControls.style.display = 'none'; // Butonu gizle
+                     return permission;
+                 }
+
+                 try {
+                     const result = await Notification.requestPermission();
+                     console.log('Bildirim izni sonucu:', result);
+                      if (result === 'granted' || result === 'denied') {
+                          notificationControls.style.display = 'none'; // Butonu gizle
+                     }
+                     // Eğer izin verilirse, hemen kontrol yap
+                     if (result === 'granted') {
+                         checkAndNotifyExpiringItems();
+                     }
+                     return result;
+                 } catch (error) {
+                     console.error('Bildirim izni isteme hatası:', error);
+                      notificationControls.style.display = 'none'; // Hata durumunda da gizle
+                     return 'error';
+                 }
+            };
+
+             // Bildirimleri kontrol et ve gerekiyorsa göster
+            const checkAndNotifyExpiringItems = () => {
+                if (checkNotificationPermission() !== 'granted') {
+                    console.log("Bildirim izni verilmemiş.");
+                    return;
+                }
+
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const notificationThresholdDays = 3; // Kaç gün kala bildirim verilecek
+
+                items.forEach(item => {
+                    const expiryDate = new Date(item.skt);
+                    expiryDate.setHours(0, 0, 0, 0);
+                    const diffTime = expiryDate - today;
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                    // Sadece yaklaşanlar için (0 ile threshold arasında)
+                    if (diffDays >= 0 && diffDays <= notificationThresholdDays) {
+                        // Basit bir kontrol: Bu ürün için son 24 saatte bildirim gösterildi mi?
+                         // Daha gelişmiş bir sistemde bildirim ID'lerini saklamak gerekir.
+                        const lastNotifiedKey = `notified_${item.id}`;
+                        const lastNotifiedTimestamp = localStorage.getItem(lastNotifiedKey);
+                        const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+
+                        if (!lastNotifiedTimestamp || parseInt(lastNotifiedTimestamp) < oneDayAgo) {
+                             console.log(`Bildirim gönderiliyor: ${item.name}`);
+                            showNotification(item, diffDays);
+                             localStorage.setItem(lastNotifiedKey, Date.now().toString());
+                        }
+                    }
+                     // Eski bildirim anahtarlarını temizle (opsiyonel)
+                     else {
+                         localStorage.removeItem(`notified_${item.id}`);
+                     }
+                });
+            };
+
+             // Bildirimi gösterme fonksiyonu
+            const showNotification = (item, daysLeft) => {
+                 const title = `SKT Yaklaşıyor: ${item.name}`;
+                 let body = `Son kullanma tarihine ${daysLeft} gün kaldı (${displayDate(item.skt)}).`;
+                 if (daysLeft === 0) {
+                     body = `Son kullanma tarihi bugün! (${displayDate(item.skt)})`;
+                 }
+
+                 const options = {
+                     body: body,
+                     icon: 'images/icon-192x192.png', // Manifest'teki ikonlardan biri
+                     badge: 'images/icon-72x72.png', // Küçük ikon (Android'de görünebilir)
+                     // tag: `skt-${item.id}`, // Aynı etiketli bildirimleri gruplar/günceller
+                     // renotify: true, // Tag ile güncellendiğinde tekrar ses/titreşim çalar mı?
+                     // data: { itemId: item.id } // Bildirime tıklanınca kullanılacak veri
+                 };
+
+                // Service Worker üzerinden göndermek daha sağlamdır ama basitlik için doğrudan deneyelim
+                 if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
+                     navigator.serviceWorker.ready.then(registration => {
+                         registration.showNotification(title, options);
+                     });
+                 } else {
+                      // Service Worker yoksa doğrudan Notification API
+                     new Notification(title, options);
+                 }
+            };
+
+             // Bildirim kontrollerini gösterip göstermemeye karar ver
+             const checkAndRequestNotifications = () => {
+                 const permission = checkNotificationPermission();
+                 if (permission === 'default') {
+                     notificationControls.style.display = 'block';
+                 } else {
+                     notificationControls.style.display = 'none';
+                     // İzin zaten verilmişse, periyodik kontrolü başlatabiliriz
+                     if (permission === 'granted') {
+                         checkAndNotifyExpiringItems();
+                         // İsteğe bağlı: Belirli aralıklarla tekrar kontrol et
+                         // setInterval(checkAndNotifyExpiringItems, 6 * 60 * 60 * 1000); // Örn: 6 saatte bir
+                     }
+                 }
+             };
+
+
+            // --- Olay Dinleyicileri ---
+            addItemBtn.addEventListener('click', () => openModal());
+            closeModalBtn.addEventListener('click', closeModal);
+            cancelModalBtn.addEventListener('click', closeModal);
+            window.addEventListener('click', (event) => { if (event.target === itemModal) closeModal(); });
+             window.addEventListener('click', (event) => { if (event.target === barcodeScannerModal) stopScan(); }); // Tarayıcı dışına tıklayınca kapat
+
+
+            // Form Gönderme
+            itemForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const formData = {
+                    name: itemNameInput.value,
+                    skt: itemSktInput.value,
+                    quantity: itemQuantityInput.value || 1,
+                    notes: itemNotesInput.value,
+                    barcode: itemBarcodeInput.value || null // Boşsa null yap
+                };
+
+                if (!formData.name || !formData.skt) {
+                    alert('Lütfen Ürün Adı ve SKT alanlarını doldurun.');
+                    return;
+                }
+
+                if (currentEditId) {
+                    updateItem(currentEditId, formData);
+                } else {
+                    addItem(formData);
+                }
+            });
+
+            searchInput.addEventListener('input', filterItems);
+            sortOrderSelect.addEventListener('change', filterItems);
+
+             // Barkod Tarama Butonları
+             scanBarcodeBtn.addEventListener('click', startScan);
+             stopScanBtn.addEventListener('click', stopScan);
+
+             // Bildirim İzin Butonu
+             enableNotificationsBtn.addEventListener('click', requestNotificationPermission);
+
+             // --- Service Worker Kaydı ---
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                    navigator.serviceWorker.register('service-worker.js')
+                        .then(registration => {
+                            console.log('ServiceWorker registration successful with scope: ', registration.scope);
+
+                             // Bildirim tıklama olayını dinle (Service Worker'da tanımlı olmalı)
+                             // registration.addEventListener('notificationclick', event => {
+                             //    console.log('Notification clicked:', event.notification.tag);
+                             //    // İlgili ürüne gitme veya uygulamayı açma işlemleri
+                             //    event.notification.close();
+                             //    // event.waitUntil(clients.openWindow('/')); // Uygulamayı aç
+                             // });
+
+                        })
+                        .catch(err => {
+                            console.log('ServiceWorker registration failed: ', err);
+                        });
+                });
+            } else {
+                console.log('Service Worker desteklenmiyor.');
+            }
+
+            // --- Çevrimiçi/Çevrimdışı Durum Takibi ---
+            const updateOnlineStatus = () => {
+                 document.body.classList.toggle('offline', !navigator.onLine);
+                 console.log(navigator.onLine ? "Çevrimiçi." : "Çevrimdışı.");
+             };
+             window.addEventListener('online', updateOnlineStatus);
+             window.addEventListener('offline', updateOnlineStatus);
+
+            // --- Başlangıç ---
+            updateOnlineStatus();
+            renderItems(); // İlk liste yüklemesi
+            // checkAndRequestNotifications(); // renderItems içinde çağrılıyor zaten
+
+            // Uygulama görünür olduğunda bildirimleri kontrol et (tarayıcı sekmesi aktifleştiğinde)
+            document.addEventListener("visibilitychange", () => {
+                if (document.visibilityState === "visible") {
+                    checkAndNotifyExpiringItems();
+                }
+            });
+
+        });
+    </script>
+
+</body>
+</html>
