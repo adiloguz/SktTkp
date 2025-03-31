@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Barcode and QR Code Scanner</title>
+  <style>
+    .error {
+      font-weight: bold;
+      color: red;
+    }
+
+    .barcode-format-checkbox {
+      margin-right: 10px;
+      white-space: nowrap;
+      display: inline-block;
+    }
+
+    .decode-result {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div>
+    <p>
+      Modern mobile phones often have a variety of different cameras installed (e.g. front, rear, wide-angle, infrared, desk-view). The one picked by default is sometimes not the best choice.
+      For more fine-grained control, you can select a camera by device constraints or by the device ID:
+    </p>
+
+    <select id="camera-select">
+      <!-- Camera options will be populated dynamically -->
+    </select>
+
+    <p>
+      Detected codes are visually highlighted in real-time. Use the following dropdown to change the flavor:
+    </p>
+
+    <select id="track-function-select">
+      <!-- Track function options will be populated dynamically -->
+    </select>
+
+    <p>
+      By default only QR-codes are detected but a variety of other barcode formats are also supported. You can select one or multiple but the more you select the more expensive scanning becomes:
+      <br />
+      <span class="barcode-format-checkbox">
+        <input type="checkbox" id="qr-code" checked>
+        <label for="qr-code">QR Code</label>
+      </span>
+      <!-- More checkboxes will be added dynamically here -->
+    </p>
+
+    <p id="error" class="error"></p>
+
+    <p class="decode-result">
+      Last result: <b id="last-result"></b>
+    </p>
+
+    <div>
+      <video id="video-element" width="100%" height="100%" autoplay></video>
+    </div>
+  </div>
+
+  <script>
+    const cameraSelect = document.getElementById('camera-select');
+    const trackFunctionSelect = document.getElementById('track-function-select');
+    const lastResultElement = document.getElementById('last-result');
+    const errorElement = document.getElementById('error');
+    const videoElement = document.getElementById('video-element');
+
+    const barcodeFormats = {
+      qr_code: true,
+      aztec: false,
+      code_128: false,
+      code_39: false,
+      // Add other formats as needed
+    };
+
+    let selectedCamera = { facingMode: 'environment' };
+    let trackFunctionSelected = 'outline';
+
+    const defaultConstraintOptions = [
+      { label: 'rear camera', constraints: { facingMode: 'environment' } },
+      { label: 'front camera', constraints: { facingMode: 'user' } }
+    ];
+
+    const trackFunctionOptions = [
+      { text: 'nothing (default)', value: 'nothing' },
+      { text: 'outline', value: 'outline' },
+      { text: 'centered text', value: 'centeredText' },
+      { text: 'bounding box', value: 'boundingBox' }
+    ];
+
+    // Initialize camera options
+    function initializeCameraSelect() {
+      defaultConstraintOptions.forEach(option => {
+        const opt = document.createElement('option');
+        opt.value = option.constraints.facingMode;
+        opt.textContent = option.label;
+        cameraSelect.appendChild(opt);
+      });
+    }
+
+    // Initialize track function options
+    function initializeTrackFunctionSelect() {
+      trackFunctionOptions.forEach(option => {
+        const opt = document.createElement('option');
+        opt.value = option.value;
+        opt.textContent = option.text;
+        trackFunctionSelect.appendChild(opt);
+      });
+    }
+
+    // Initialize barcode formats checkboxes
+    function initializeBarcodeFormats() {
+      const barcodeContainer = document.querySelector('.barcode-format-checkbox');
+      Object.keys(barcodeFormats).forEach(format => {
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = format;
+        checkbox.checked = barcodeFormats[format];
+
+        const label = document.createElement('label');
+        label.setAttribute('for', format);
+        label.textContent = format;
+
+        const container = document.createElement('span');
+        container.classList.add('barcode-format-checkbox');
+        container.appendChild(checkbox);
+        container.appendChild(label);
+
+        barcodeContainer.parentNode.insertBefore(container, barcodeContainer.nextSibling);
+      });
+    }
+
+    // Start camera
+    async function startCamera() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+        const constraints = selectedCamera;
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: constraints
+        });
+        videoElement.srcObject = stream;
+
+        // Handle camera ready
+        onCameraReady(videoDevices);
+      } catch (err) {
+        onError(err);
+      }
+    }
+
+    // Camera ready callback
+    function onCameraReady(devices) {
+      const options = devices.map(device => ({
+        label: `${device.label} (ID: ${device.deviceId})`,
+        constraints: { deviceId: device.deviceId }
+      }));
+
+      // Add options to the select dropdown
+      options.forEach(option => {
+        const opt = document.createElement('option');
+        opt.value = option.constraints.deviceId;
+        opt.textContent = option.label;
+        cameraSelect.appendChild(opt);
+      });
+    }
+
+    // Error handling
+    function onError(err) {
+      errorElement.textContent = `[${err.name}]: ${err.message}`;
+    }
+
+    // Barcode detection handling (simplified)
+    function onDetect(detectedCodes) {
+      lastResultElement.textContent = JSON.stringify(detectedCodes.map(code => code.rawValue));
+    }
+
+    // Select track function
+    trackFunctionSelect.addEventListener('change', (event) => {
+      trackFunctionSelected = event.target.value;
+      console.log(`Track function changed to: ${trackFunctionSelected}`);
+    });
+
+    // Select camera
+    cameraSelect.addEventListener('change', (event) => {
+      selectedCamera = { facingMode: event.target.value };
+      startCamera();
+    });
+
+    // Initialize the app
+    initializeCameraSelect();
+    initializeTrackFunctionSelect();
+    initializeBarcodeFormats();
+    startCamera();
+  </script>
+</body>
+</html>
