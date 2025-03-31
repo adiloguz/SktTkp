@@ -47,6 +47,10 @@
         <input type="checkbox" id="qr-code" checked>
         <label for="qr-code">QR Code</label>
       </span>
+      <span class="barcode-format-checkbox">
+        <input type="checkbox" id="ean-13">
+        <label for="ean-13">EAN-13</label>
+      </span>
       <!-- More checkboxes will be added dynamically here -->
     </p>
 
@@ -70,6 +74,7 @@
 
     const barcodeFormats = {
       qr_code: true,
+      ean_13: false,
       aztec: false,
       code_128: false,
       code_39: false,
@@ -188,6 +193,13 @@
     cameraSelect.addEventListener('change', (event) => {
       selectedCamera = { facingMode: event.target.value };
       startCamera();
+    });
+
+    // Barcode format checkbox change handler
+    document.querySelectorAll('.barcode-format-checkbox input').forEach(checkbox => {
+      checkbox.addEventListener('change', (event) => {
+        barcodeFormats[event.target.id] = event.target.checked;
+      });
     });
 
     // Initialize the app
